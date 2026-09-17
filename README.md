@@ -29,7 +29,8 @@ Payouts run independently of payment generation, at two total confirmations.
 ```
 
 Rust 1.97+, Python 3.10+, C/C++, Clang, CMake, and Zakura's native build dependencies
-are required. Keep this repo beside `../zakura` with the `demo/preconf` changes.
+are required. Cargo fetches the custom Zakura fork from GitHub at the revision pinned
+in `Cargo.toml`; no sibling checkout is needed.
 Use Docker below to avoid setting up the build toolchain manually.
 
 ## Explorer
@@ -56,7 +57,7 @@ indexer availability. Node RPCs, merchant submission, and `/state` remain privat
 ## Host with Docker Compose
 
 See **[deploy/HOSTING.md](deploy/HOSTING.md)** for the complete procedure, including
-packaging both repos with the custom Zakura changes, HTTPS, persistence, updates,
+packaging the source and serving the frontend separately, HTTPS, persistence, updates,
 and backups. Quick local container start:
 
 ```sh

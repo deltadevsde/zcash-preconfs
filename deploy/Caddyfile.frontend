@@ -1,0 +1,22 @@
+{$DEMO_DOMAIN:preconfs.deltadevs.xyz} {
+    root * /srv/preconf
+    header {
+        X-Content-Type-Options nosniff
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'"
+        Cache-Control no-store
+    }
+    @backend path /api/* /healthz
+    handle @backend {
+        reverse_proxy https://zinc.curl-vimba.ts.net {
+            header_up Host zinc.curl-vimba.ts.net
+        }
+    }
+    handle /protocol {
+        rewrite * /protocol.html
+        file_server
+    }
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
+}

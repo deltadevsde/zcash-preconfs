@@ -5,10 +5,63 @@ runs three Zakura nodes, a wallet worker, traffic generation, and the explorer.
 All node and merchant RPCs bind to the container's loopback interface. Only the
 read-only explorer is reachable through Caddy.
 
+## Current deployment: Cloudflare Tunnel
+
+Public URL: https://preconfs.deltadevs.xyz
+
+The website and API both run on this computer at `127.0.0.1:8080`.
+Cloudflare Tunnel `preconf-demo` forwards the public hostname directly to that
+port; no separate public server or Tailscale connection is needed by visitors.
+The DNS route and HTTPS are configured through Cloudflare.
+
+The connector runs as the user service `preconf-tunnel.service`. User lingering
+is enabled, so it starts at boot without an interactive login. Manage it with:
+
+```sh
+systemctl --user status preconf-tunnel.service
+systemctl --user restart preconf-tunnel.service
+journalctl --user -u preconf-tunnel.service -f
+curl -f https://preconfs.deltadevs.xyz/healthz
+```
+
+Its private configuration and credentials are under `~/.cloudflared/` and are
+not included in this repository or source archives. Keep this computer online
+and the demo Docker container running. The other deployment options below are
+alternatives, not additional required services.
+
 ## 1. Transfer the current source
 
-The two sibling repositories must be shipped together, including the uncommitted
-custom Zakura branch changes. From `preconf/`:
+### Separate frontend, with the demo on zinc
+
+The live API is available at `https://zinc.curl-vimba.ts.net/api/*` through
+Tailscale Serve. To host the public website on a different box:
+
+1. Join that box to the tailnet and allow it to reach zinc on HTTPS port 443.
+2. Point `preconfs.deltadevs.xyz` at that box and allow public ports 80/443.
+3. Export the frontend: `python3 scripts/export-web.py /tmp/preconf-web`.
+4. Copy the contents of `/tmp/preconf-web/` into `/srv/preconf/` on that box.
+5. Use `deploy/Caddyfile.frontend` as that box's Caddy configuration (adjust the
+   domain if needed), then reload Caddy.
+
+Run Caddy on the tailnet-connected host, or provide its container with access to
+the host's tailnet routing and DNS. This setup runs no Zakura nodes on the public
+box. Do not start the demo Compose stack there for this deployment mode.
+
+Caddy serves the static frontend locally and forwards `/api/*` and `/healthz`
+to zinc over HTTPS, preserving their paths and query strings. The browser uses
+same-origin API URLs, so visitors need neither Tailscale nor CORS configuration.
+The exporter embeds the protocol article so `/protocol` also works on the static
+host. Re-export and copy the files when updating the frontend.
+
+Verify from the public box with `curl -f https://zinc.curl-vimba.ts.net/api/summary`,
+then through `https://preconfs.deltadevs.xyz/api/summary`. Zinc must stay running
+for live data; static pages remain available if its connection goes down.
+
+The remaining instructions cover hosting the whole demo on a single server.
+
+Only this repository is needed. Cargo downloads the custom Zakura fork from
+`https://github.com/deltadevsde/zakura` at the commit pinned in `Cargo.toml`.
+From `preconf/`:
 
 ```sh
 ./scripts/package.sh /tmp/preconf-hosting.tar.gz
@@ -30,8 +83,7 @@ regtest fixture keys are public test keys. The source directory layout is:
 
 ```text
 preconf-demo/
-├── preconf/
-└── zakura/
+└── preconf/
 ```
 
 ## 2. Configure and start
