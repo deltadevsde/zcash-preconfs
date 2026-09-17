@@ -11,7 +11,7 @@ import time
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT.parent / 'zakura/target/release/preconf-demo'
+BINARY = ROOT / 'target/release/preconf-demo'
 PROCESSES = []
 
 

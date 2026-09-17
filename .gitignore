@@ -1,0 +1,6 @@
+/target/
+/runs/
+__pycache__/
+
+/data/
+.env

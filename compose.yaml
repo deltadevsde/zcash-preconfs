@@ -1,8 +1,8 @@
 services:
   demo:
     build:
-      context: ..
-      dockerfile: preconf/deploy/Dockerfile
+      context: .
+      dockerfile: deploy/Dockerfile
     init: true
     restart: unless-stopped
     stop_grace_period: 2m
