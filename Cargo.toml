@@ -1,0 +1,40 @@
+[package]
+name = "preconf-demo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+axum = "0.8"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+ed25519-dalek = "2"
+hex = "0.4"
+incrementalmerkletree = { version = "0.8.2", features = ["legacy-api"] }
+orchard = { package = "zakura-orchard", version = "=1.2.0" }
+rand = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+toml = "0.8"
+tower = { version = "0.4", features = ["util", "buffer"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+zcash_keys = { package = "zakura-keys", version = "=1.2.0" }
+zcash_primitives = { package = "zakura-primitives", version = "=1.2.0" }
+zcash_protocol = "0.10.1"
+zcash_note_encryption = "0.4"
+zakura = { path = "../zakura/crates/zakurad", default-features = false }
+zakura-chain = { path = "../zakura/crates/zakura-chain" }
+zakura-consensus = { path = "../zakura/crates/zakura-consensus" }
+zakura-network = { path = "../zakura/crates/zakura-network" }
+zakura-rpc = { path = "../zakura/crates/zakura-rpc" }
+
+[profile.release]
+lto = false
+codegen-units = 16
+incremental = true

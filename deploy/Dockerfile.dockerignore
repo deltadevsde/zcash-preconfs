@@ -1,0 +1,14 @@
+**
+!zakura/
+!zakura/**
+!preconf/
+!preconf/**
+**/.git
+**/target
+**/.agents
+**/.codex
+**/__pycache__
+zakura/qa
+preconf/data
+preconf/runs
+preconf/docs/show-me-explorer.html

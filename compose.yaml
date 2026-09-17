@@ -1,0 +1,49 @@
+services:
+  demo:
+    build:
+      context: ..
+      dockerfile: preconf/deploy/Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 2m
+    volumes:
+      - demo-data:/data
+    ports:
+      - "127.0.0.1:${EXPLORER_PORT:-8080}:8080"
+    command: ["python3", "scripts/live.py", "--run-dir", "/data/live", "--host", "0.0.0.0", "--payments", "${PAYMENTS:-30}", "--jitter", "${PAYMENT_JITTER:-10}", "--block-seconds", "${BLOCK_SECONDS:-30}"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5m
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  web:
+    image: caddy:2
+    profiles: [public]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DEMO_DOMAIN: ${DEMO_DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      demo:
+        condition: service_started
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  demo-data:
+  caddy-data:
+  caddy-config:
