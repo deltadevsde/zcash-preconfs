@@ -123,24 +123,32 @@ async fn main() -> Result<()> {
                             let outputs: Vec<(String, u64)> =
                                 serde_json::from_value(request["outputs"].clone())?;
                             let fee = request["fee"].as_u64().unwrap_or(20000);
+                            let conflict = request["conflict"].as_bool().unwrap_or(false);
+                            // Select the shared input using the more expensive version first.
+                            let selection_fee = if conflict {
+                                fee.checked_add(100000).context("fee overflow")?
+                            } else {
+                                fee
+                            };
                             let tx = wallet::create(
                                 &blocks,
                                 seed,
                                 &outputs,
-                                fee,
+                                selection_fee,
                                 None,
                                 &reserved,
                                 &network(),
                             )?;
                             let mut item = serde_json::json!({"payment":tx});
-                            if request["conflict"].as_bool().unwrap_or(false) {
+                            if conflict {
                                 let input =
                                     format!("nf:{}", tx["input_nf"].as_str().context("input nf")?);
-                                item["conflict"] = wallet::create(
+                                item["conflict"] = tx.clone();
+                                item["payment"] = wallet::create(
                                     &blocks,
                                     seed,
                                     &outputs,
-                                    fee + 100000,
+                                    fee,
                                     Some(&input),
                                     &Default::default(),
                                     &network(),

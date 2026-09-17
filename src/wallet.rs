@@ -197,15 +197,19 @@ impl WalletState {
         }
         let min_value = self.min_value;
         let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
+        // Only unspent notes need witnesses at the requested tip. During cold
+        // recovery, avoid rebuilding witnesses for notes spent later in this range.
+        let spent: HashSet<_> = blocks[self.hashes.len()..]
+            .iter()
+            .flat_map(|b| &b.transactions)
+            .flat_map(|tx| tx.ironwood_nullifiers())
+            .map(|nf| hex::encode(<[u8; 32]>::from(*nf)))
+            .collect();
+        self.notes
+            .retain(|n| !spent.contains(&hex::encode(n.note.nullifier(fvk).to_bytes())));
         for block in &blocks[self.hashes.len()..] {
             let height = block.coinbase_height().context("block height")?;
             for tx in &block.transactions {
-                let spent: HashSet<_> = tx
-                    .ironwood_nullifiers()
-                    .map(|nf| hex::encode(<[u8; 32]>::from(*nf)))
-                    .collect();
-                self.notes
-                    .retain(|n| !spent.contains(&hex::encode(n.note.nullifier(fvk).to_bytes())));
                 let parsed = parse(tx, net, height.0)?;
                 if let Some(bundle) = parsed.ironwood_bundle() {
                     for action in bundle.actions() {
@@ -221,7 +225,10 @@ impl WalletState {
                             &ivk,
                             action,
                         ) {
-                            if note.value().inner() > 0 && note.value().inner() >= min_value {
+                            if note.value().inner() > 0
+                                && note.value().inner() >= min_value
+                                && !spent.contains(&hex::encode(note.nullifier(fvk).to_bytes()))
+                            {
                                 self.notes.push(OwnedNote {
                                     note,
                                     witness: IncrementalWitness::from_tree(self.tree.clone())
