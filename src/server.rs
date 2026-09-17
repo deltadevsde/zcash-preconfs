@@ -541,6 +541,9 @@ async fn reconcile(app: &App) -> Result<()> {
             let seed = app.config.seed.clone();
             let outputs = vec![(payout.address.clone(), payout.amount)];
             tracing::info!(block=%payout.block.hash,amount=payout.amount,"preconf.payout_building");
+            // Cold wallet recovery and proving must not block readiness or ledger reads.
+            // Reconciliation is serial; RPC submissions do not change payout indices.
+            drop(store);
             let built = tokio::task::spawn_blocking(move || {
                 wallet::create(
                     &blocks,
@@ -553,6 +556,7 @@ async fn reconcile(app: &App) -> Result<()> {
                 )
             })
             .await?;
+            store = app.store.lock().await;
             match built {
                 Ok(built) => {
                     store.ledger.payouts[i].raw_tx =

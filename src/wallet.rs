@@ -155,6 +155,7 @@ struct OwnedNote {
     txid: String,
 }
 struct WalletState {
+    min_value: u64,
     hashes: Vec<zakura_chain::block::Hash>,
     tree: CommitmentTree<MerkleHashOrchard, 32>,
     notes: Vec<OwnedNote>,
@@ -162,6 +163,7 @@ struct WalletState {
 impl Default for WalletState {
     fn default() -> Self {
         Self {
+            min_value: 0,
             hashes: Vec::new(),
             tree: CommitmentTree::empty(),
             notes: Vec::new(),
@@ -169,9 +171,16 @@ impl Default for WalletState {
     }
 }
 impl WalletState {
-    fn sync(&mut self, blocks: &[Block], fvk: &FullViewingKey, net: &Network) -> Result<()> {
+    fn sync(
+        &mut self,
+        blocks: &[Block],
+        fvk: &FullViewingKey,
+        net: &Network,
+        min_value: u64,
+    ) -> Result<()> {
         // A reorg rebuilds witnesses from the surviving canonical chain.
-        if self.hashes.len() > blocks.len()
+        if min_value < self.min_value
+            || self.hashes.len() > blocks.len()
             || self
                 .hashes
                 .last()
@@ -179,6 +188,14 @@ impl WalletState {
         {
             *self = Self::default();
         }
+        // This demo spends one input. Notes unable to cover its fee and any positive output cannot fund it;
+        // keeping witnesses for every small service fee makes cold recovery quadratic.
+        // Keep the lowest supported cutoff. A higher-fee conflict must not evict
+        // notes and force the next ordinary payment to rescan the whole chain.
+        if self.hashes.is_empty() {
+            self.min_value = min_value;
+        }
+        let min_value = self.min_value;
         let ivk = PreparedIncomingViewingKey::new(&fvk.to_ivk(Scope::External));
         for block in &blocks[self.hashes.len()..] {
             let height = block.coinbase_height().context("block height")?;
@@ -204,7 +221,7 @@ impl WalletState {
                             &ivk,
                             action,
                         ) {
-                            if note.value().inner() > 0 {
+                            if note.value().inner() > 0 && note.value().inner() >= min_value {
                                 self.notes.push(OwnedNote {
                                     note,
                                     witness: IncrementalWitness::from_tree(self.tree.clone())
@@ -238,7 +255,10 @@ pub fn create(
         .lock()
         .map_err(|_| anyhow!("wallet lock"))?;
     let wallet = wallets.entry(seed.into()).or_default();
-    wallet.sync(blocks, &fvk, net)?;
+    let min_value = fee
+        .checked_add(u64::from(outputs.iter().any(|(_, value)| *value > 0)))
+        .context("amount overflow")?;
+    wallet.sync(blocks, &fvk, net, min_value)?;
     let total = outputs.iter().try_fold(fee, |n, (_, value)| {
         n.checked_add(*value).context("amount overflow")
     })?;

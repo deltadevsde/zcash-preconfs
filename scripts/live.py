@@ -86,7 +86,7 @@ filter = "info"
     PROCESSES.append(explorer)
     event('starting',phase='connecting')
     for url in urls.values():wait_for('node RPC ready',lambda url=url:request(url,'getblockcount')>=0)
-    wait_for('service ready',lambda:request(api,'preconf_info',{})['ready'])
+    wait_for('service ready',lambda:request(api,'preconf_info',{})['ready'],timeout=1800)
     def sync(height):
         for url in urls.values():wait_for('chain synchronization',lambda url=url:request(url,'getblockcount')==height)
         wait_for('service reconciliation',lambda:(s:=request(api,'preconf_info',{}))['ready'] and s['tip']['height']==height)
