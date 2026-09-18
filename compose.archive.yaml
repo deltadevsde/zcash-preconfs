@@ -1,0 +1,4 @@
+# Use with: docker compose -f compose.yaml -f compose.archive.yaml up -d --no-build
+services:
+  demo:
+    command: ["python3", "scripts/explorer.py", "--run", "/data/archive", "--host", "0.0.0.0", "--archived"]

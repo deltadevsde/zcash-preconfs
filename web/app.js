@@ -6,17 +6,17 @@ function table(head,rows){return `<div class="scroll"><table><thead><tr>${head.m
 function blockTable(items){return table(['Height','Miner','Txs','Preconfs','Seen'],items.map(b=>`<tr><td>${link('/block/'+b.height,'#'+num(b.height))}</td><td>${['miner1','miner2','service','outsider'].includes(b.miner)?link('/miner/'+b.miner,b.miner):esc(b.miner)}</td><td>${num(b.txids.length)}</td><td>${b.preconf_count}</td><td class="muted">${age(b.observed_at)}</td></tr>`))}
 function txTable(items){return table(['Transaction','Type','Status','Block','Value'],items.filter(Boolean).map(t=>`<tr><td>${link('/tx/'+t.txid,short(t.txid))}</td><td>${badge(t.kind)}</td><td>${badge(t.status)}</td><td>${t.height!==null?link('/block/'+t.height,'#'+t.height):'—'}</td><td>${t.kind==='payout'?num(t.payout.amount)+' zat':'<span class="shielded" title="Encrypted on-chain">▓▓▓▓▓▓</span>'}</td></tr>`))}
 function pager(page,more){return `<div class="pager">${page?link(location.pathname+'?page='+(page-1),'← Newer'):''}<span class="muted">Page ${page+1}</span>${more?link(location.pathname+'?page='+(page+1),'Older →'):''}</div>`}
-let busy=false,summary;
-async function render(){if(busy)return;busy=true;try{
+let busy=false,summary,archivedRendered=false;
+async function render(){if(busy||archivedRendered)return;busy=true;try{
  summary=await api('/api/summary');
- const stale=summary.error||summary.stalled||Date.now()/1000-summary.indexed_at>30;
- $('connection').hidden=!stale;$('connection').className=stale?'warn':'';$('connection').textContent=summary.error||(stale?'Chain updates delayed.':'');
- $('updated').textContent=`Indexed ${age(summary.indexed_at)} · Chain ${short(summary.chain_id)}`;
+ const stale=!summary.archived&&(summary.error||summary.stalled||Date.now()/1000-summary.indexed_at>30);
+ $('connection').hidden=!stale&&!summary.archived;$('connection').className=stale?'warn':'';$('connection').textContent=summary.archived?`Archived demo · mining stopped at block ${num(summary.height)}`:summary.error||(stale?'Chain updates delayed.':'');
+ $('updated').textContent=summary.archived?`Archived · Chain ${short(summary.chain_id)}`:`Indexed ${age(summary.indexed_at)} · Chain ${short(summary.chain_id)}`;
  $('stats').innerHTML=[['Preconfirmed payments',num(summary.included),`${num(summary.pending)} pending · ${num(summary.failed)} failed`],['Miner revenue paid',num(summary.paid)+' zat','']].map(s=>`<div class="stat"><span class="label">${s[0]}</span><strong>${s[1]}</strong>${s[2]?`<small>${s[2]}</small>`:''}</div>`).join('');
  const path=location.pathname,page=Number(new URLSearchParams(location.search).get('page')||0);let html='';
  document.body.classList.toggle('detail',path!=='/');
  document.querySelectorAll('.links a').forEach(a=>a.classList.toggle('active',a.pathname===path));
- if(path==='/protocol'){document.title='Protocol | PreconfScan';return;}
+ if(path==='/protocol'){archivedRendered=summary.archived;document.title='Protocol | PreconfScan';return;}
  if(path==='/'){
   const [bs,ts,ps]=await Promise.all([api('/api/blocks'),api('/api/txs'),api('/api/txs?filter=pending')]);
   html=`<div class="grid">${panel('Latest blocks',blockTable(bs.items.slice(0,8)),link('/blocks','see all →'))}${panel('Latest transactions',txTable(ts.items.slice(0,8)),link('/txs','see all →'))}</div>`+panel('Awaiting inclusion',txTable(ps.items.slice(0,6)),link('/pending','pending set →'));
@@ -36,7 +36,7 @@ async function render(){if(busy)return;busy=true;try{
  }else if(path==='/activity'){
   const d=await api('/api/activity');html=panel('Demo activity',table(['Time','Event','Details'],d.items.map(e=>`<tr><td class="muted">${new Date(e.time*1000).toLocaleTimeString()}</td><td>${esc(e.event.replaceAll('_',' '))}</td><td>${e.txid?link('/tx/'+e.txid,short(e.txid)):e.height?link('/block/'+e.height,'#'+e.height):esc(e.phase||'')}${e.count!==undefined?' · '+e.count+' payments':''}${e.miner?' · '+esc(e.miner):''}</td></tr>`)))+'<p class="note">“Double spend rejected” means the service rejected a second spend. This live workload uses participating miners; it does not force outsider wins.</p>';
  }
- $('page').innerHTML=html;document.title=(path==='/'?'Live explorer':path.slice(1).replaceAll('/',' · '))+' | PreconfScan';
+ $('page').innerHTML=html;archivedRendered=summary.archived;document.title=(path==='/'?(summary.archived?'Archived explorer':'Live explorer'):path.slice(1).replaceAll('/',' · '))+' | PreconfScan';
  }catch(e){$('connection').hidden=false;$('connection').className='warn';$('connection').textContent=e.message;if(location.pathname!=='/protocol')$('page').innerHTML=panel('Unavailable',`<p class="empty">${esc(e.message)}. ${link('/','Return home →')}</p>`);}finally{busy=false}}
 $('search').onsubmit=async e=>{e.preventDefault();const q=$('query').value.trim().toLowerCase();$('search-error').textContent='';if(/^\d{1,10}$/.test(q)){location.href='/block/'+q;return}if(!/^[a-f0-9]{64}$/.test(q)){$('search-error').textContent='Enter a block height or a 64-character transaction/block hash.';return}try{await api('/api/tx/'+q);location.href='/tx/'+q}catch{try{await api('/api/block/'+q);location.href='/block/'+q}catch{$('search-error').textContent='No matching transaction or block in this devnet.'}}};
 render();setInterval(render,3000);

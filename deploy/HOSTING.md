@@ -5,6 +5,31 @@ runs three Zakura nodes, a wallet worker, traffic generation, and the explorer.
 All node and merchant RPCs bind to the container's loopback interface. Only the
 read-only explorer is reachable through Caddy.
 
+## Archived observer (current mode)
+
+Mining and traffic generation are stopped. The public site serves a frozen snapshot
+at block 1290 containing 38,489 included preconfirmations and 41,065 total transactions.
+The snapshot is in `/data/archive` inside the existing Docker volume. Original chain
+and service data remain in `/data/live`; nothing was deleted or reset.
+
+Start only the observer with:
+
+```sh
+docker compose -f compose.yaml -f compose.archive.yaml up -d --build
+```
+
+The deployed computer's ignored `.env` sets
+`COMPOSE_FILE=compose.yaml:compose.archive.yaml`, so plain `docker compose up`
+also keeps archive mode. No miners, proof workers, or node RPCs run in this mode.
+The explorer opens its saved database read-only, serves existing pages, and labels
+the site as archived. Confirmation counts and payout statuses stay at the saved tip.
+It does not imply that unsettled payouts have completed.
+
+The archive was made after stopping the demo, using SQLite's backup API on
+`/data/live/explorer.sqlite` and copying the driver log and the manifest's public
+chain ID and target payment count. Before serving, the observer verifies that the
+saved ledger tip matches the indexed block tip. Keep this volume in backups.
+
 ## Current deployment: Cloudflare Tunnel
 
 Public URL: https://preconfs.deltadevs.xyz

@@ -39,6 +39,23 @@ class ExplorerTests(unittest.TestCase):
         reopened=Index(self.run)
         self.assertEqual(reopened.api('/api/tx/'+self.ids[-1],{})['height'],1)
         reopened.db.close()
+    def test_archive_serves_saved_history_without_network_or_writes(self):
+        self.update()
+        with patch('explorer.request',side_effect=AssertionError('RPC forbidden')), patch('explorer.get',side_effect=AssertionError('HTTP forbidden')):
+            archived=Index(self.run,archived=True)
+            archived.update()
+            summary=archived.api('/api/summary',{})
+            self.assertTrue(summary['archived'])
+            self.assertFalse(summary['stalled'])
+            self.assertIsNone(summary['error'])
+            self.assertEqual(summary['chain_id'],'c'*64)
+            self.assertEqual(archived.api('/api/block/1',{})['miner'],'miner1')
+            self.assertEqual(archived.api('/api/tx/'+self.ids[-1],{})['confirmations'],1)
+            self.assertTrue(archived.api('/api/miners',{})['items'])
+            with self.assertRaisesRegex(Exception,'readonly'):
+                archived.db.execute('DELETE FROM blocks')
+            archived.db.close()
+
     def test_reorg_removes_old_block_and_requeues_receipt(self):
         self.update();old=self.hashes[-1];old_tx=self.ids[-1]
         self.hashes[-1]='2'*64;self.ids[-1]='d'*64

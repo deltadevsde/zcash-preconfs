@@ -15,11 +15,12 @@ from demo import request, get
 WEB = Path(__file__).resolve().parents[1] / 'web'
 
 class Index:
-    def __init__(self, run):
+    def __init__(self, run, archived=False):
         self.run = Path(run)
+        self.archived = archived
         self.lock = threading.RLock()
-        self.db = sqlite3.connect(self.run/'explorer.sqlite', check_same_thread=False)
-        self.db.executescript('''PRAGMA journal_mode=WAL;
+        self.db = sqlite3.connect(f'file:{self.run.resolve()}/explorer.sqlite?mode=ro' if archived else self.run/'explorer.sqlite', uri=archived, check_same_thread=False)
+        if not archived: self.db.executescript('''PRAGMA journal_mode=WAL;
           CREATE TABLE IF NOT EXISTS blocks(height INTEGER PRIMARY KEY, hash TEXT UNIQUE, data TEXT);
           CREATE TABLE IF NOT EXISTS transactions(txid TEXT PRIMARY KEY, height INTEGER, position INTEGER);
           CREATE INDEX IF NOT EXISTS tx_height ON transactions(height,position);
@@ -35,6 +36,17 @@ class Index:
         self.event_offset = 0
         self.miners = {}
         self.observed = {}
+        self._maps = None
+        if archived:
+            tip = self.db.execute('SELECT height,hash FROM blocks ORDER BY height DESC LIMIT 1').fetchone()
+            if not tip or self.state.get('tip') != {'height':tip[0], 'hash':tip[1]}:
+                raise ValueError('Archive ledger and indexed chain do not match')
+            self.manifest = json.loads((self.run/'manifest.json').read_text())
+            self.read_events()
+            self.last_ok = (self.run/'explorer.sqlite').stat().st_mtime
+            self.last_block = max(self.observed.values(), default=self.last_ok)
+            self.error = None
+            self._maps = self.maps()
 
     def read_events(self):
         path=self.run/'driver.jsonl'
@@ -53,6 +65,8 @@ class Index:
         self.events=self.events[-200:]
 
     def update(self):
+        if self.archived:
+            return
         manifest=json.loads((self.run/'manifest.json').read_text())
         url=manifest['nodes']['service']
         ledger=get(manifest['api']+'/state')['ledger']
@@ -95,6 +109,8 @@ class Index:
             time.sleep(2)
 
     def maps(self):
+        if self._maps is not None:
+            return self._maps
         return ({r['txid']:r for r in self.state['records']}, {tx:p for p in self.state['payouts'] for tx in p['txids']}, {p['txid']:p for p in self.state['payouts'] if p['txid']})
 
     def tx(self, txid):
@@ -127,7 +143,7 @@ class Index:
             tip=self.db.execute('SELECT COALESCE(MAX(height),0) FROM blocks').fetchone()[0]
             if path=='/api/summary':
                 records=self.state['records'];payouts=self.state['payouts']
-                return {'height':tip,'chain_id':self.manifest.get('chain_id'),'indexed_at':self.last_ok,'last_block_at':self.last_block,'error':self.error,'stalled':time.time()-self.last_block>180,'records':len(records),'pending':sum(r['status']=='pending' for r in records),'included':sum(r['status']=='included' for r in records),'failed':sum(r['status']=='failed' for r in records),'paid':sum(p['amount'] for p in payouts if p['status']=='confirmed'),'transactions':self.db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0],'target_payments':self.manifest.get('target_payments',30)}
+                return {'archived':self.archived,'height':tip,'chain_id':self.manifest.get('chain_id'),'indexed_at':self.last_ok,'last_block_at':self.last_block,'error':self.error,'stalled':not self.archived and time.time()-self.last_block>180,'records':len(records),'pending':sum(r['status']=='pending' for r in records),'included':sum(r['status']=='included' for r in records),'failed':sum(r['status']=='failed' for r in records),'paid':sum(p['amount'] for p in payouts if p['status']=='confirmed'),'transactions':self.db.execute('SELECT COUNT(*) FROM transactions').fetchone()[0],'target_payments':self.manifest.get('target_payments',30)}
             if path=='/api/blocks':
                 rows=self.db.execute('SELECT height FROM blocks ORDER BY height DESC LIMIT 25 OFFSET ?',(page*25,)).fetchall()
                 return {'items':[self.block(str(r[0])) for r in rows],'page':page,'has_more':tip+1>(page+1)*25}
@@ -142,24 +158,24 @@ class Index:
                 return {'items':[self.tx(t) for t in ids[:25]],'page':page,'has_more':len(ids)>25}
             if path=='/api/miners':
                 items=[]
+                all_blocks=[self.block(str(r[0])) for r in self.db.execute('SELECT height FROM blocks')]
                 for miner in ['miner1','miner2','service','outsider']:
-                    blocks=[self.block(str(r[0])) for r in self.db.execute('SELECT height FROM blocks')]
-                    blocks=[b for b in blocks if b['miner']==miner]
+                    blocks=[b for b in all_blocks if b['miner']==miner]
                     payouts=[p for b in blocks for p in b['payouts']]
                     items.append({'name':miner,'blocks':len(blocks),'payments':sum(b['preconf_count'] for b in blocks),'earned':sum(p['amount'] for p in payouts),'paid':sum(p['amount'] for p in payouts if p['status']=='confirmed'),'recent_blocks':[b['height'] for b in blocks[-10:]][::-1]})
                 return {'items':items}
             if path=='/api/activity':return {'items':list(reversed(self.events[-60:]))}
             return None
 
-def serve(run,host,port):
-    index=Index(run)
-    threading.Thread(target=index.loop,daemon=True).start()
+def serve(run,host,port,archived=False):
+    index=Index(run,archived=archived)
+    if not archived: threading.Thread(target=index.loop,daemon=True).start()
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             parsed=urlparse(self.path);path=parsed.path
             try:
                 if path=='/healthz':
-                    healthy=index.last_ok>0 and time.time()-index.last_ok<30
+                    healthy=index.last_ok>0 and (index.archived or time.time()-index.last_ok<30)
                     return self.send(200 if healthy else 503,json.dumps({'healthy':healthy}).encode(),'application/json')
                 if path.startswith('/api/'):
                     value=index.api(path,parse_qs(parsed.query))
@@ -169,6 +185,8 @@ def serve(run,host,port):
                     name,mime=assets[path];return self.send(200,(WEB/name).read_bytes(),mime)
                 if re.fullmatch(r'/(?:|blocks|txs|pending|miners|activity|protocol|block/(?:[0-9]+|[a-f0-9]{64})|tx/[a-f0-9]{64}|miner/(?:miner1|miner2|service|outsider))',path):
                     html=(WEB/'index.html').read_text()
+                    if index.archived:
+                        html=html.replace('A live, shielded preconf demo on a regtest devnet','An archived shielded preconf demo on a regtest devnet')
                     if path=='/protocol':
                         html=html.replace('<p class="empty">Loading chain data…</p>',(WEB/'protocol.html').read_text())
                     return self.send(200,html.encode(),'text/html')
@@ -196,4 +214,5 @@ if __name__=='__main__':
     parser.add_argument('--run',required=True)
     parser.add_argument('--host',default='127.0.0.1')
     parser.add_argument('--port',type=int,default=8080)
-    args=parser.parse_args();serve(args.run,args.host,args.port)
+    parser.add_argument('--archived',action='store_true',help='Serve saved history without nodes or indexing')
+    args=parser.parse_args();serve(args.run,args.host,args.port,args.archived)
